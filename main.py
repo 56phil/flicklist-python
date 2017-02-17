@@ -16,6 +16,7 @@ terrible_movies = [
     "Nine Lives"
 ]
 
+
 # a list of pages that anyone is allowed to visit
 # (any others require logging in)
 allowed_routes = [
@@ -71,27 +72,29 @@ class Handler(webapp2.RequestHandler):
     def set_secure_cookie(self, name, val):
         """ Adds a secure name-value pair cookie to the response """
         cookie_val = hashutils.make_secure_val(val)
-        self.response.headers.add_header('Set-Cookie', '%s=%s; Path=/' % (name, cookie_val))
+        self.response.headers.add_header('Set-Cookie', '{}={}; Path=/'.\
+                format(name, cookie_val))
 
     def initialize(self, *a, **kw):
-        """ Any subclass of webapp2.RequestHandler can implement a method called 'initialize'
-            to specify what should happen before handling a request.
+        """ Any subclass of webapp2.RequestHandler can implement a method
+        called 'initialize' to specify what should happen before handling a
+        request.
 
-            Here, we use it to ensure that the user is logged in.
-            If not, and they try to visit a page that requires an logging in (like /ratings),
-            then we redirect them to the /login page
+        Here, we use it to ensure that the user is logged in. If not, and
+        they try to visit a page that requires an logging in (like /ratings),
+        then we redirect them to the /login page
         """
         webapp2.RequestHandler.initialize(self, *a, **kw)
         uid = self.read_secure_cookie('user_id')
         self.user = uid and User.get_by_id(int(uid))
 
         if not self.user and self.request.path not in allowed_routes:
-            self.redirect('/login')
-            return
+            return self.redirect('/login')
 
     def get_user_by_name(self, username):
         """ Given a username, try to fetch the user from the database """
-        user = db.GqlQuery("SELECT * from User WHERE username = '%s'" % username)
+        q_str = "SELECT * from User WHERE username = '{}'".format(username)
+        user = db.GqlQuery(q_str)
         if user:
             return user.get()
 
@@ -102,14 +105,8 @@ class Index(Handler):
     """
 
     def get(self):
-        """ Display the homepage (the list of unwatched movies) """
-
-        # TODO 1
-        # We only want the Movies belonging to the current user
-        # Modify the query below.
-        # Instead of a GqlQuery, use an O.R.M. method like lines 186 and 187
-        unwatched_movies = db.GqlQuery("SELECT * FROM Movie WHERE watched = False")
-
+        q_str = "SELECT * FROM Movie where watched = False"
+        unwatched_movies = db.GqlQuery(q_str)
         t = jinja_env.get_template("frontpage.html")
         content = t.render(
                         movies = unwatched_movies,
@@ -123,23 +120,29 @@ class AddMovie(Handler):
     """
 
     def post(self):
-        """ User wants to add a new movie to their list """
-
         new_movie_title = self.request.get("new-movie")
 
         # if the user typed nothing at all, redirect and yell at them
         if (not new_movie_title) or (new_movie_title.strip() == ""):
-            error = "Please specify the movie you want to add."
-            self.redirect("/?error=" + cgi.escape(error))
-            return
+            error = 'Please specify a movie you want to add.'
+            return self.redirect("/?error=" + cgi.escape(error, quote=True))
+
+        query = Movie.all().filter("title", new_movie_title).\
+                filter("owner", self.user).filter("watched", False)
+        result = query.fetch(limit=1)
+        if result:
+            error = "{} is on your watchlist.".format(new_movie_title)
+            print error
+            return self.redirect("/?error=" + cgi.escape(error, quote=True))
 
         # if the user wants to add a terrible movie, redirect and yell at them
         if new_movie_title in terrible_movies:
-            error = "Trust me, you don't want to add '{0}' to your Watchlist.".format(new_movie_title)
-            self.redirect("/?error=" + cgi.escape(error, quote=True))
-            return
+            error = "Trust me, you don't want to add '{0}' to your Watchlist."\
+                    .format(new_movie_title)
+            return self.redirect("/?error=" + cgi.escape(error, quote=True))
 
-        # 'escape' the user's input so that if they typed HTML, it doesn't mess up our site
+        # 'escape' the user's input so that if they typed HTML, it doesn't mess
+        # up our site
         new_movie_title_escaped = cgi.escape(new_movie_title, quote=True)
 
         # construct a movie object for the new movie
@@ -225,14 +228,8 @@ class RecentlyWatchedMovies(Handler):
         query = Movie.all().filter("watched", True).order("-datetime_watched")
         # get the first 20 results
         recently_watched_movies = query.fetch(limit = 20)
-
-        # TODO 4
-        # Replace the code below with code that renders the 'recently-watched.html' template
-        # Don't forget to pass recently_watched_movies over to your template.
-        content = ""
-        for movie in recently_watched_movies:
-            content += movie.title + ", "
-
+        t = jinja_env.get_template("recently-watched.html")
+        content = t.render(movies = recently_watched_movies)
         self.response.write(content)
 
 
@@ -259,7 +256,7 @@ class Login(Handler):
             self.render_login_form(error = "Invalid password")
         else:
             self.login_user(user)
-            self.redirect("/")
+            return self.redirect("/")
 
 
 class Logout(Handler):
@@ -267,7 +264,7 @@ class Logout(Handler):
     def get(self):
         """ User is trying to log out """
         self.logout_user()
-        self.redirect("/login")
+        return self.redirect("/login")
 
 
 class Register(Handler):
@@ -279,8 +276,8 @@ class Register(Handler):
         USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
         if USER_RE.match(username):
             return username
-        else:
-            return ""
+
+        return ""
 
     def validate_password(self, password):
         """ Returns the password string untouched if it is valid,
@@ -346,7 +343,7 @@ class Register(Handler):
             content = t.render(username=username, errors=errors)
             self.response.out.write(content)
         else:
-            self.redirect('/')
+            return self.redirect('/')
 
 
 app = webapp2.WSGIApplication([
@@ -354,10 +351,7 @@ app = webapp2.WSGIApplication([
     ('/add', AddMovie),
     ('/watched-it', WatchedMovie),
     ('/ratings', MovieRatings),
-
-    # TODO 3
-    # include another route for recently watched movies
-
+    ('/recent', RecentlyWatchedMovies),
     ('/login', Login),
     ('/logout', Logout),
     ('/register', Register)

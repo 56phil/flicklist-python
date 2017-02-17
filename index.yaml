@@ -20,3 +20,9 @@ indexes:
   - name: watched
   - name: created
     direction: desc
+
+- kind: Movie
+  properties:
+  - name: watched
+  - name: datetime_watched
+    direction: desc
